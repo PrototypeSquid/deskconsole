@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Desk Clock Console</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#151a22; --ink:#d9e1eb; --muted:#7f8b99;
+    --accent:#00d6b9; --amber:#ffbf3c; --danger:#ff5d5d; --ok:#70e070; --warn:#ffd166;
+  }
+  html,body{height:100%}
+  body{margin:0; background:var(--bg); color:var(--ink);
+       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+       -webkit-font-smoothing: antialiased;}
+  .wrap{max-width:1100px; margin:0 auto; padding:14px; display:grid; gap:12px; grid-template-columns: repeat(12, 1fr);}
+  .card{background:var(--panel); border:1px solid #202734; border-radius:16px; padding:14px 16px;
+        box-shadow: 0 6px 24px rgba(0,0,0,.25), inset 0 0 0 1px rgba(255,255,255,.03);}
+  .title{font-size:12px; letter-spacing:.12em; color:var(--muted); text-transform:uppercase; margin-bottom:6px}
+  .big{font-size:44px; line-height:1; letter-spacing:.02em}
+  .beats{color:var(--accent)}
+  .row{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
+  .sub{color:var(--muted); font-size:12px}
+  .val{font-size:22px}
+  .pill{padding:2px 8px; border-radius:999px; background:#0c121a; border:1px solid #1f2733; font-size:12px}
+  .ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--danger)}
+  .grid-12{grid-column: span 12} .grid-6{grid-column: span 6} .grid-4{grid-column: span 4}
+  .grid-8{grid-column: span 8}
+@media (max-width:900px){ .grid-8{grid-column: span 12} }
+  @media (max-width:900px){ .grid-6{grid-column: span 12} .grid-4{grid-column: span 6} }
+  .bar{ position:relative; height:14px; background:#0a0f15; border-radius:999px; overflow:hidden; border:1px solid #1f2631; }
+  .bar>span{ position:absolute; left:0; top:0; bottom:0; width:0%; background:linear-gradient(90deg, var(--amber), var(--accent)); transition:width .6s ease; }
+  .hidden{ display:none !important; }
+  .settings{ position:fixed; right:12px; bottom:12px; z-index:25; background:var(--panel); border:1px solid #202734;
+             border-radius:14px; padding:10px 12px; width:280px;}
+  .settings h3{margin:6px 0 8px; font-size:14px; color:var(--muted); text-transform:uppercase; letter-spacing:.12em}
+  .settings label{display:block; font-size:12px; color:var(--muted); margin:8px 0 4px}
+  .settings input,.settings select{ width:100%; padding:8px; border-radius:10px; background:#0c1218; color:#d9e1eb; border:1px solid #1f2733; outline:none; }
+  .settings .row{justify-content:space-between}
+  button{cursor:pointer; background:#0c1218; color:#d9e1eb; border:1px solid #1f2733; border-radius:10px; padding:8px 10px}
+  button.primary{background:var(--accent); color:#062c2a; border:none; font-weight:700}
+  .fab{ position:fixed; bottom:12px; z-index:30; width:42px; height:42px; border-radius:999px; border:1px solid #1f2733;
+        background:#0c1218; color:#d9e1eb; font-size:20px; line-height:42px; text-align:center; box-shadow:0 6px 18px rgba(0,0,0,.35); }
+  #settingsToggle{ right:12px; } #refreshBtn{ right:60px; }
+  .hint{font-size:11px; color:var(--muted)}
+  .diag{position:fixed; left:12px; bottom:12px; background:#091018; border:1px dashed #2a3444; border-radius:10px; padding:8px 10px; max-width:40ch; font-size:11px; color:#b6c4d6}
+  .diag strong{color:#ffd166}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <!-- TIME -->
+  <section class="card grid-12">
+    <div class="title">Time</div>
+    <div class="row" style="align-items:center; justify-content:space-between">
+      <div>
+        <div id="localTime" class="big">--:--:--</div>
+        <div class="sub" id="dateStr">—</div>
+        <div class="sub" id="updated">—</div>
+      </div>
+      <div style="text-align:right">
+        <div class="big beats" id="beats">@---.--</div>
+        <div class="sub">Swatch Internet Time</div>
+      </div>
+    </div>
+  </section>
+
+ <!-- WEATHER + MOON -->
+<section class="card grid-8" id="wxCard">
+  <div class="title">Weather & Moon</div>
+  <div class="row" style="align-items:center; justify-content:space-between">
+    <div>
+      <div class="val" id="weatherNow">—</div>
+      <div class="sub" id="weatherMeta">—</div>
+      <div class="sub" id="rainWarn">—</div>
+      <div class="sub" id="wxAlerts">—</div>
+    </div>
+    <div style="text-align:right">
+      <div class="val" id="moonVal">—</div>
+      <div class="sub" id="moonMeta">—</div>
+    </div>
+  </div>
+</section>
+
+  <!-- SEASON -->
+  <section class="card grid-4">
+    <div class="title">Season</div>
+    <div class="val" id="seasonVal">—</div>
+    <div class="sub" id="seasonProgress">—</div>
+  </section>
+
+  <!-- SUN + TIDE (MERGED) -->
+<section class="card grid-6">
+  <div class="title">Sun & Tide</div>
+  <div class="row" style="justify-content:space-between; align-items:flex-start; width:100%">
+    <div>
+      <div class="val">Sunrise: <span id="sr">—</span></div>
+      <div class="val">Sunset: <span id="ss">—</span></div>
+      <div class="sub" id="sunMeta">—</div>
+    </div>
+    <div style="text-align:right">
+      <div class="val" id="tideNow">—</div>
+      <div class="sub" id="tideMeta">Set TIDE_STATION_ID in Settings (US)</div>
+    </div>
+  </div>
+</section>
+
+  <!-- DAYLIGHT BAR -->
+  <section class="card grid-12">
+    <div class="title">Daylight Remaining</div>
+    <div class="bar"><span id="daylightFill" style="width:0%"></span></div>
+    <div class="sub" id="daylightMeta" style="margin-top:6px">—</div>
+  </section>
+</div>
+
+<!-- SETTINGS -->
+<div class="settings hidden" id="settings">
+  <h3>Settings</h3>
+
+  <label>Latitude (N + / S –)</label>
+  <input id="lat" type="number" step="0.000001" placeholder="e.g., 39.4567">
+  <label>Longitude (E + / W –)</label>
+  <input id="lon" type="number" step="0.000001" placeholder="-77.9632">
+
+  <label>Units</label>
+  <select id="units">
+    <option value="us">US (°F, mph)</option>
+    <option value="metric">Metric (°C, km/h)</option>
+  </select>
+
+  <label>Time format</label>
+  <select id="timefmt">
+    <option value="12">12-hour</option>
+    <option value="24">24-hour</option>
+  </select>
+  
+  <label>Tide Station ID (NOAA, US)</label>
+  <input id="tide" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="e.g., 9414290">
+
+  <label style="margin-top:8px">Diagnostics</label>
+  <label class="row" style="align-items:center; gap:8px;">
+    <input id="showdiag" type="checkbox"> Show diagnostics panel
+  </label>
+
+  <div class="row" style="margin-top:10px">
+    <button id="save" class="primary">Save</button>
+    <button id="geoBtn" title="Fill from device">Use Geolocation</button>
+  </div>
+  <div class="hint" style="margin-top:6px">Saved locally. West longitudes must be negative.</div>
+</div>
+
+<!-- Floating controls -->
+<button id="refreshBtn" class="fab" title="Refresh">↻</button>
+<button id="settingsToggle" class="fab" title="Settings">⚙️</button>
+
+<!-- Diagnostics -->
+<div class="diag" id="diag">Diagnostics: <strong>idle</strong></div>
+
+<script>
+
+/* ================================
+   Utilities (ES5-safe + polyfills)
+================================ */
+(function(){
+  if (!Date.now) { Date.now = function(){ return new Date().getTime(); }; }
+
+  function $(id){ return document.getElementById(id); }
+  function pad(n){ n=Number(n); return (n<10?'0':'')+n; }
+  function setDiag(msg){ $('diag').innerHTML = 'Diagnostics: <strong>'+msg+'</strong>'; }
+  function isoDate(d){ return d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate()); }
+
+  function applyDiagVisibility(){
+    var d = $('diag'); if (!d) return;
+    d.className = state.showDiag ? 'diag' : 'diag hidden';
+  }
+
+  // Date label
+  function formatDateSafe(d){
+    try{
+      var s = d.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+      return s && typeof s === 'string' ? s : null;
+    }catch(e){ return null; }
+  }
+  function formatDateFallback(d){
+    var w=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+    var m=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+    return w+', '+m+' '+d.getDate()+', '+d.getFullYear();
+  }
+
+  // XHR JSON loader
+  function getJSON(url, ok, fail){
+    var u = url + (url.indexOf('?')>=0 ? '&' : '?') + '_=' + Date.now();
+    var x = new XMLHttpRequest();
+    x.onreadystatechange = function(){
+      if (x.readyState===4){
+        if (x.status===200){
+          try { ok(JSON.parse(x.responseText)); }
+          catch(e){ setDiag('Parse error '+url); if (fail) fail(e); }
+        } else { setDiag('HTTP '+x.status+' '+url); if (fail) fail(new Error('HTTP '+x.status)); }
+      }
+    };
+    x.onerror = function(){ setDiag('Network error '+url); if (fail) fail(new Error('net')); };
+    x.open('GET', u, true); x.send();
+  }
+// All Origins proxy
+var PROXY_BASE = "https://api.allorigins.win/raw?url=";
+
+function viaProxy(u){
+  return PROXY_BASE ? (PROXY_BASE + encodeURIComponent(u)) : null;
+}
+
+/* Try several URLs in order until one works — uses the locally scoped getJSON */
+function getJSONTry(urls, ok, fail){
+  var i = 0;
+  (function attempt(){
+    if (i >= urls.length){ if (fail) fail(new Error('all failed')); return; }
+    getJSON(urls[i++], ok, function(){ attempt(); });
+  })();
+}
+  /* ================================
+     Persistent state & Settings
+  ================================= */
+  var state = {
+  lat:null, lon:null, units:'us', timefmt:'12',
+  sunrise:null, sunset:null,
+  tideStation:'', showDiag:true
+};
+
+  function loadSettings(){
+  try{
+    var s = JSON.parse(localStorage.getItem('hud.settings') || '{}');
+   
+    state.lat         = s.lat != null ? s.lat : 38.9072;   
+    state.lon         = s.lon != null ? s.lon : -77.0369;  // ;
+    state.units       = s.units || 'us';
+    state.timefmt     = s.timefmt || '12';
+    state.tideStation = (s.tideStation || '');
+    state.showDiag    = (typeof s.showDiag === 'boolean') ? s.showDiag : true;
+
+    $('lat').value = state.lat;  $('lon').value = state.lon;
+    $('units').value = state.units;  $('timefmt').value = state.timefmt;
+    $('tide').value = state.tideStation;  $('showdiag').checked = !!state.showDiag;
+  }catch(e){}
+}
+  function toggleSettings(force){
+    var box = $('settings');
+    box.className = (typeof force==='boolean'
+      ? (force?'settings':'settings hidden')
+      : (/hidden/.test(box.className)?'settings':'settings hidden'));
+  }
+function saveSettings(){
+  var s = {
+    lat: parseFloat($('lat').value),
+    lon: parseFloat($('lon').value),
+    units: $('units').value,
+    timefmt: $('timefmt').value,
+    tideStation: String(($('tide').value || '')).replace(/\s+/g, ''),
+    showDiag: !!$('showdiag').checked
+  };
+  localStorage.setItem('hud.settings', JSON.stringify(s));
+  loadSettings(); applyDiagVisibility(); fetchAll(); toggleSettings(false);
+}
+
+  /* ================================
+     Time, .beats, sunrise/sunset
+  ================================= */
+  function formatClock(now){
+    if (state.timefmt==='24') return pad(now.getHours())+':'+pad(now.getMinutes())+':'+pad(now.getSeconds());
+    var h=now.getHours(), m=now.getMinutes(), s=now.getSeconds(), h12=((h+11)%12)+1, ampm=h<12?'AM':'PM';
+    return h12+':'+pad(m)+':'+pad(s)+' '+ampm;
+  }
+  function updateClocks(){
+    var now = new Date();
+    $('localTime').textContent = formatClock(now);
+    $('dateStr').textContent = formatDateSafe(now) || formatDateFallback(now);
+    updateDaylightBar(now);
+  }
+
+  (function(){
+    function pad3(n){ n=Math.floor(n); return (n<10?'00':(n<100?'0':''))+n; }
+    function padN(n,d){ n=Math.floor(n); var s=String(n); while(s.length<d) s='0'+s; return s; }
+    function getBeats(){
+      var now=new Date();
+      var utc = now.getUTCHours()*3600 + now.getUTCMinutes()*60 + now.getUTCSeconds() + now.getUTCMilliseconds()/1000;
+      var bmt = (utc + 3600) % 86400; return bmt / 86.4;
+    }
+    function fmtBeats(b,dec){ if(dec==null)dec=2; var i=pad3(b); var frac=Math.floor((b%1)*Math.pow(10,dec)); return '@'+i+'.'+padN(frac,dec); }
+    function start(){
+      var el=$('beats'); if(!el) return;
+      function tick(){ el.textContent=fmtBeats(getBeats(),2); if (window.requestAnimationFrame) requestAnimationFrame(tick); else setTimeout(tick,100); }
+      tick();
+    }
+    if (document.readyState==='complete'||document.readyState==='interactive') start(); else document.addEventListener('DOMContentLoaded', start, false);
+  })();
+
+  function toRad(d){ return d*Math.PI/180; }
+  function dayOfYear(d){ var s=new Date(d.getFullYear(),0,0); return Math.floor((d-s)/86400000); }
+  function solarEvent(lat, lon, date, isRise){
+    var zenith=90.833, N=dayOfYear(date), lngHour=lon/15;
+    var t = isRise ? N + ((6 - lngHour)/24) : N + ((18 - lngHour)/24);
+    var M  = (0.9856*t) - 3.289;
+    var L  = M + (1.916*Math.sin(toRad(M))) + (0.020*Math.sin(toRad(2*M))) + 282.634; L=(L+360)%360;
+    var RA = (180/Math.PI)*Math.atan(0.91764*Math.tan(toRad(L))); RA=(RA+360)%360;
+    var Lq = Math.floor(L/90)*90, RAq = Math.floor(RA/90)*90; RA = (RA + (Lq-RAq))/15;
+    var sinDec = 0.39782*Math.sin(toRad(L)), cosDec = Math.cos(Math.asin(sinDec));
+    var cosH = (Math.cos(toRad(zenith)) - (sinDec*Math.sin(toRad(lat)))) / (cosDec*Math.cos(toRad(lat)));
+    if (cosH>1||cosH<-1) return null;
+    var H = isRise ? (360 - (180/Math.PI)*Math.acos(cosH)) : (180/Math.PI)*Math.acos(cosH); H/=15;
+    var T = H + RA - (0.06571*t) - 6.622;
+    var UT = (T - lngHour) % 24; if (UT<0) UT+=24;
+    var tz = -(date.getTimezoneOffset()/60);
+    var LT = (UT + tz + 24) % 24;
+    var midnight = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0,0,0,0);
+    return new Date(midnight.getTime() + LT*3600000);
+  }
+  function computeSunTimes(lat,lon,d){ return {sunrise:solarEvent(lat,lon,d,true), sunset:solarEvent(lat,lon,d,false)}; }
+  function toShortTime(d){
+    var h=d.getHours(), m=d.getMinutes();
+    if (state.timefmt==='24') return pad(h)+':'+pad(m);
+    var h12=((h+11)%12)+1, am=(h<12?'AM':'PM'); return h12+':'+pad(m)+' '+am;
+  }
+  function updateDaylightBar(now){
+    if(!state.sunrise||!state.sunset){ $('daylightMeta').textContent='—'; $('daylightFill').style.width='0%'; return; }
+    var sr=state.sunrise, ss=state.sunset, total=ss-sr, pct;
+    if (now<sr) pct=0; else if (now>ss) pct=100; else pct=((now-sr)/total)*100;
+    $('daylightFill').style.width = Math.max(0,Math.min(100,pct)).toFixed(1)+'%';
+    var remainMs = (now<sr)? (ss-sr) : (now<=ss? ss-now : 0);
+    var H=Math.floor(remainMs/3600000), M=Math.floor((remainMs%3600000)/60000);
+    $('daylightMeta').textContent = (now>ss)? 'Night' : (now<sr? (H+'h '+pad(M)+'m until sunrise') : (H+'h '+pad(M)+'m until sunset'));
+  }
+
+/* =============== Config for precip warning =============== */
+var RAIN_WARN_PCT = 50; // threshold % to show a "rain likely" notice
+
+/* Old-safe ISO parser for "YYYY-MM-DDTHH:MM" local time */
+function parseISOLocal(s){
+  // e.g., "2025-08-15T13:00"
+  var y = parseInt(s.substr(0,4),10);
+  var m = parseInt(s.substr(5,2),10)-1;
+  var d = parseInt(s.substr(8,2),10);
+  var hh = parseInt(s.substr(11,2),10);
+  var mm = parseInt(s.substr(14,2),10);
+  return new Date(y, m, d, hh, mm, 0, 0);
+}
+
+/* Find max precip prob in next 24h and first time crossing threshold */
+function scanPrecipNext24h(hourly){
+  if (!hourly || !hourly.time || !hourly.precipitation_probability) return null;
+
+  var times = hourly.time;
+  var probs = hourly.precipitation_probability;
+  var now = new Date();
+  var cutoff = new Date(now.getTime() + 24*3600*1000);
+
+  var maxp = -1, firstHit = null;
+
+  for (var i=0;i<times.length;i++){
+    var t = parseISOLocal(times[i]);
+    if (t < now) continue;
+    if (t > cutoff) break;
+
+    var p = Number(probs[i]);
+    if (!isFinite(p)) p = 0;           // handle null / undefined / ""
+    p = Math.max(0, Math.min(100, p)); // clamp
+
+    if (p > maxp) maxp = p;
+    if (firstHit === null && p >= RAIN_WARN_PCT) firstHit = t;
+  }
+  return { max: maxp, first: firstHit };
+}
+
+/* Format a short time with 12/24hr setting */
+function fmtShortTime(d){
+  if (!d) return '—';
+  var h = d.getHours(), m = d.getMinutes();
+  if (state.timefmt === '24') return (h<10?'0':'')+h+':'+(m<10?'0':'')+m;
+  var h12=((h+11)%12)+1, am=(h<12?'AM':'PM');
+  return h12+':'+(m<10?'0':'')+m+' '+am;
+}
+  
+  /* ================================
+     Weather 
+  ================================= */
+  function codeToWeather(code){
+    var m={0:'Clear',1:'Mainly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Rime fog',51:'Light drizzle',53:'Drizzle',55:'Heavy drizzle',
+           61:'Light rain',63:'Rain',65:'Heavy rain',66:'Freezing rain',67:'Freezing rain',71:'Light snow',73:'Snow',75:'Heavy snow',
+           80:'Rain showers',81:'Rain showers',82:'Violent showers',95:'Thunderstorm',96:'Storm w/ hail',99:'Severe storm'};
+    return m.hasOwnProperty(code)? m[code] : '—';
+  }
+
+
+  function fetchAlerts(){
+  // NWS alerts for US points. Works best in the US; elsewhere may return none.
+  var base = 'https://api.weather.gov/alerts/active?point='+state.lat+','+state.lon+'&limit=5';
+  var urls = [base];
+  var p = (typeof viaProxy === 'function') ? viaProxy(base) : null; if (p) urls.push(p);
+
+  setDiag('Alerts…');
+  getJSONTry(urls, function(d){
+    try{
+      var feats = d && d.features; 
+      if (!feats || !feats.length){ $('wxAlerts').textContent = 'No active alerts.'; setDiag('Alerts OK (none)'); return; }
+
+      var out = [], i, f, pr, sev, txt;
+      for (i=0;i<feats.length;i++){
+        f = feats[i]; pr = f && f.properties ? f.properties : null;
+        if (!pr) continue;
+        sev = pr.severity || '';
+        txt = (pr.event || 'Alert') + (sev? ' ('+sev+')':'');
+        out.push(txt);
+        if (out.length === 3) break; // keep it short
+      }
+      $('wxAlerts').textContent = '⚠️ ' + out.join(' • ');
+      setDiag('Alerts OK');
+    }catch(e){ $('wxAlerts').textContent='Alerts parse error'; setDiag('Alerts parse error'); }
+  }, function(){
+    $('wxAlerts').textContent=(location.protocol==='file:'?'Blocked on file://':'Alerts unavailable');
+    setDiag('Alerts XHR failed');
+  });
+}
+  
+  function fetchWeather(){
+  var base = 'https://api.open-meteo.com/v1/forecast'
+           + '?latitude='+state.lat+'&longitude='+state.lon
+           + '&current=temperature_2m,weather_code,wind_speed_10m'
+           + '&hourly=precipitation_probability'
+           + '&forecast_days=2'
+           + '&timezone=auto';
+
+  var urls = [base];
+  var p = (typeof viaProxy === 'function') ? viaProxy(base) : null; if (p) urls.push(p);
+
+  setDiag('Weather…');
+  getJSONTry(urls, function(d){
+    try{
+      var cur = d && d.current;
+      if(!cur){ $('weatherMeta').textContent='Weather unavailable'; setDiag('Weather: no current'); return; }
+
+      // current
+var tempC = cur.temperature_2m;
+var windMS = cur.wind_speed_10m;
+var code   = Number(cur.weather_code); // ensure number
+
+var temp, unitT, wind, unitW;
+if (state.units==='us'){ temp=Math.round(tempC*9/5+32); unitT='°F'; wind=Math.round(windMS*2.23694); unitW='mph'; }
+else { temp=Math.round(tempC); unitT='°C'; wind=Math.round(windMS*3.6); unitW='km/h'; }
+
+$('weatherNow').textContent = temp+unitT+' • '+codeToWeather(code);
+$('weatherMeta').textContent = 'Wind '+wind+' '+unitW;
+
+// precip: scan next 24h (guard against missing hourly)
+var scan = scanPrecipNext24h(d && d.hourly ? d.hourly : null);
+if (scan && scan.max !== -1){
+  if (scan.max >= RAIN_WARN_PCT){
+    $('rainWarn').textContent = '☔ Rain likely in next 24h (max '+scan.max+'%'+(scan.first?' around '+fmtShortTime(scan.first):'')+').';
+  } else {
+    $('rainWarn').textContent = 'No significant precipitation expected in the next 24h.';
+  }
+} else {
+  $('rainWarn').textContent = 'Precipitation forecast unavailable.';
+}
+
+      $('updated').textContent = 'Updated '+(new Date()).toLocaleTimeString();
+      setDiag('Weather OK');
+    }catch(e){ $('weatherMeta').textContent='Weather parse error'; setDiag('Weather parse error'); }
+  }, function(){
+    $('weatherMeta').textContent=(location.protocol==='file:'?'Blocked on file://':'Weather unavailable');
+    $('rainWarn').textContent='—';
+    setDiag('Weather XHR failed');
+  });
+}
+
+  /* ================================
+     Tide (NOAA)
+  ================================= */
+  function parseNOAATime(s){
+    var y = parseInt(s.substr(0,4),10), m = parseInt(s.substr(5,2),10)-1, d = parseInt(s.substr(8,2),10);
+    var hh = parseInt(s.substr(11,2),10), mm = parseInt(s.substr(14,2),10);
+    return new Date(y, m, d, hh, mm, 0, 0);
+  }
+
+  function fetchTide(){
+  var station = state.tideStation || TIDE_STATION_ID;
+  if (!station){
+    $('tideNow').textContent='—';
+    $('tideMeta').textContent='Set a NOAA Tide Station ID in Settings';
+    return;
+  }
+  var today = new Date();
+  var url = 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter'
+          + '?product=predictions&format=json&time_zone=lst_ldt&interval=hilo&units=english'
+          + '&application=deskclock'
+          + '&begin_date='+isoDate(today)
+          + '&range=48'
+          + '&station='+encodeURIComponent(station);
+
+  setDiag('Tide…');
+  getJSON(url, function(d){
+    try{
+      var arr = d && d.predictions; if(!arr||!arr.length){ $('tideMeta').textContent='Tide data unavailable'; setDiag('Tide: no predictions'); return; }
+      var now = new Date(), next=[];
+      for (var i=0;i<arr.length;i++){
+        var t = parseNOAATime(arr[i].t);
+        if (t >= now) next.push({t:t, type:arr[i].type});
+        if (next.length===2) break;
+      }
+      function toShort(t){ var h=t.getHours(), m=t.getMinutes();
+        if (state.timefmt==='24') return (h<10?'0':'')+h+':'+(m<10?'0':'')+m;
+        var h12=((h+11)%12)+1; return h12+':'+(m<10?'0':'')+m+' '+(h<12?'AM':'PM');
+      }
+      if (next.length===0){
+        $('tideNow').textContent='—'; $('tideMeta').textContent='No upcoming events'; setDiag('Tide OK (no upcoming)');
+      } else {
+        var txt = next.map(function(e){ return (e.type==='H'?'High':'Low')+' '+toShort(e.t); }).join(' • ');
+        $('tideNow').textContent = txt; $('tideMeta').textContent = 'Station ' + station; setDiag('Tide OK');
+      }
+    }catch(e){ $('tideMeta').textContent='Tide parse error'; setDiag('Tide parse error'); }
+  }, function(){ $('tideMeta').textContent=(location.protocol==='file:'?'Blocked on file://':'Tide request failed'); setDiag('Tide XHR failed'); });
+}
+
+ // ---------- Moon math helpers ----------
+var SYNODIC = 29.530588853;          // mean lunation (days)
+var PHASE_SNAP = 0.03;               // +/-3% of the cycle (~0.9 d) to call it a "Quarter" or "Full/New"
+
+function phaseNameFrom(frac, illum){
+  // frac: 0..1 (0 = New, 0.5 = Full), illum: 0..100
+  var waxing = frac < 0.5;
+  function near(x){ return Math.abs(frac - x) < PHASE_SNAP; }
+  if (near(0) || near(1))        return 'New Moon';
+  if (near(0.5))                 return 'Full Moon';
+  if (near(0.25))                return 'First Quarter';
+  if (near(0.75))                return 'Last Quarter';
+  // otherwise prefer gibbous/crescent by illumination + direction
+  return (illum >= 50)
+    ? (waxing ? 'Waxing Gibbous' : 'Waning Gibbous')
+    : (waxing ? 'Waxing Crescent' : 'Waning Crescent');
+}
+
+function moonData(date){
+  // Julian Date from Unix time
+  var jd = (date.getTime()/86400000) + 2440587.5;
+  var days = jd - 2451550.1;               // since known new moon (2000-01-06 18:14 UT)
+  var age = days % SYNODIC; if (age < 0) age += SYNODIC;
+  var frac = age / SYNODIC;                // 0..1
+  var illum = Math.round(100 * (0.5 * (1 - Math.cos(2*Math.PI*frac))));
+  var name  = phaseNameFrom(frac, illum);
+  // time to next Full Moon
+  var dToFull = ((0.5 - frac + 1) % 1) * SYNODIC; // days (0..29.53)
+  return { name:name, illum:illum, ageDays:age, frac:frac, dToFull:dToFull };
+}
+
+function fmtDaysHours(days){
+  var d = Math.floor(days);
+  var h = Math.round((days - d) * 24);
+  if (h === 24){ d += 1; h = 0; }
+  return d + 'd ' + (h<10?'0':'') + h + 'h';
+}
+
+function updateMoon(){
+  var m = moonData(new Date());
+  $('moonVal').textContent  = m.name + ' • ' + m.illum + '%';
+  $('moonMeta').textContent = 'Age: ' + Math.floor(m.ageDays) + 'd ' + (Math.round((m.ageDays%1)*24)) + 'h'
+                            + ' • Full in ' + fmtDaysHours(m.dToFull);
+}
+
+// ---------- Moon verification (USNO API) ----------
+function fetchMoonVerify(){
+  try{
+    var d = new Date();
+    var dateParam = d.getFullYear() + '-' + (d.getMonth()+1) + '-' + d.getDate(); // e.g., 2025-8-15
+    var tz = -d.getTimezoneOffset()/60;  // local TZ hours
+    var lat = state.lat, lon = state.lon; if (lat == null || lon == null) return;
+
+    var base = 'https://aa.usno.navy.mil/api/rstt/oneday'
+             + '?date=' + dateParam
+             + '&coords=' + encodeURIComponent(lat + ',' + lon)
+             + '&tz=' + tz;
+
+    var urls = [base]; var p = viaProxy(base); if (p) urls.push(p);
+
+    setDiag('Moon…');
+    getJSONTry(urls, function(resp){
+      try{
+        var dat  = resp && resp.properties && resp.properties.data;
+        var frac = dat && dat.fracillum;     // 0..1 at local noon
+        var cur  = dat && dat.curphase;      // text like "Waning Gibbous"
+        if (typeof frac === 'number'){
+          var usnoIll = Math.round(frac * 100);
+          var dToFull = ((0.5 - frac + 1) % 1) * SYNODIC;
+          // Prefer USNO’s phase name when we have it; otherwise compute a name from frac/illum
+          var name = cur || phaseNameFrom(frac, usnoIll);
+          $('moonVal').textContent  = name + ' • ' + usnoIll + '%';
+          $('moonMeta').textContent = 'Full in ' + fmtDaysHours(dToFull) + ' • Verified by USNO';
+          setDiag('Moon OK');
+        } else {
+          // keep local display; add note
+          var m = moonData(new Date());
+          $('moonMeta').textContent = 'Full in ' + fmtDaysHours(m.dToFull) + ' • Local calc (USNO unavailable)';
+        }
+      }catch(e){
+        var m = moonData(new Date());
+        $('moonMeta').textContent = 'Full in ' + fmtDaysHours(m.dToFull) + ' • USNO parse error';
+      }
+    }, function(){
+      // silent fail -> keep local
+      var m = moonData(new Date());
+      $('moonMeta').textContent = 'Full in ' + fmtDaysHours(m.dToFull) + ' • Local calc';
+      setDiag('Moon verify failed');
+    });
+  }catch(e){}
+}
+  /* Season, Sun, orchestration */
+  function updateSeason(){
+    var now=new Date(), y=now.getFullYear();
+    var starts=[new Date(y,2,1), new Date(y,5,1), new Date(y,8,1), new Date(y,11,1)];
+    var names=['Spring','Summer','Autumn','Winter'], idx,nextIdx;
+    if (now>=starts[3]||now<starts[0]){idx=3;nextIdx=0;}
+    else if (now>=starts[2]){idx=2;nextIdx=3;}
+    else if (now>=starts[1]){idx=1;nextIdx=2;}
+    else {idx=0;nextIdx=1;}
+    var start=starts[idx], end=(nextIdx===0)?new Date(y+1,2,1):starts[nextIdx];
+    var pct=Math.max(0,Math.min(100,((now-start)/(end-start))*100));
+    $('seasonVal').textContent=names[idx]; $('seasonProgress').textContent='Progress: '+pct.toFixed(1)+'%';
+  }
+
+  function fetchAll(){
+    updateSeason();
+    updateMoon();
+    fetchMoonVerify();
+    var today=new Date(); var sun=computeSunTimes(state.lat,state.lon,today);
+    if (sun.sunrise&&sun.sunset){
+      state.sunrise=sun.sunrise; state.sunset=sun.sunset;
+      $('sr').textContent=toShortTime(state.sunrise); $('ss').textContent=toShortTime(state.sunset);
+      var lenMin=(state.sunset-state.sunrise)/60000; $('sunMeta').textContent='Day length: '+Math.floor(lenMin/60)+'h '+pad(Math.round(lenMin%60))+'m';
+    } else { $('sr').textContent='—'; $('ss').textContent='—'; $('sunMeta').textContent='Sun never rises/sets here today'; }
+    fetchWeather(); fetchTide(); fetchAlerts();
+    $('updated').textContent='Updated '+(new Date()).toLocaleTimeString();
+  }
+
+  /* Geolocation */
+  function tryGeolocate(){
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(function(pos){
+      $('lat').value = pos.coords.latitude.toFixed(6);
+      $('lon').value = pos.coords.longitude.toFixed(6);
+    });
+  }
+
+  loadSettings(); applyDiagVisibility();
+
+  var el;
+  el=$('save'); if (el && el.addEventListener) el.addEventListener('click', saveSettings);
+  el=$('geoBtn'); if (el && el.addEventListener) el.addEventListener('click', tryGeolocate);
+  el=$('settingsToggle'); if (el && el.addEventListener) el.addEventListener('click', toggleSettings);
+  el=$('refreshBtn'); if (el && el.addEventListener) el.addEventListener('click', fetchAll);
+
+  updateClocks(); setInterval(updateClocks, 1000);
+  fetchAll(); setInterval(fetchAll, 20*60*1000);
+})();
+</script>
+</body>
+</html>
