@@ -148,6 +148,9 @@
     <button id="geoBtn" title="Fill from device">Use Geolocation</button>
   </div>
   <div class="hint" style="margin-top:6px">Saved locally. West longitudes must be negative.</div>
+  <div class="sub" style="text-align:center; opacity:.6; margin-top:6px;">
+  Powered by WeatherAPI.com
+</div>
 </div>
 
 <!-- Floating controls -->
@@ -221,6 +224,11 @@ function getJSONTry(urls, ok, fail){
   /* ================================
      Persistent state & Settings
   ================================= */
+
+// --- WeatherAPI key (free tier) ---
+var WEATHERAPI_KEY = '342f2eaa92df4589a86174149252308'; // https://www.weatherapi.com/
+
+  
   var state = {
   lat:null, lon:null, units:'us', timefmt:'12',
   sunrise:null, sunset:null,
@@ -421,51 +429,89 @@ function fmtShortTime(d){
 }
   
   function fetchWeather(){
-  var base = 'https://api.open-meteo.com/v1/forecast'
-           + '?latitude='+state.lat+'&longitude='+state.lon
-           + '&current=temperature_2m,weather_code,wind_speed_10m'
-           + '&hourly=precipitation_probability'
-           + '&forecast_days=2'
-           + '&timezone=auto';
-
-  var urls = [base];
-  var p = (typeof viaProxy === 'function') ? viaProxy(base) : null; if (p) urls.push(p);
-
-  setDiag('Weather…');
-  getJSONTry(urls, function(d){
-    try{
-      var cur = d && d.current;
-      if(!cur){ $('weatherMeta').textContent='Weather unavailable'; setDiag('Weather: no current'); return; }
-
-      // current
-var tempC = cur.temperature_2m;
-var windMS = cur.wind_speed_10m;
-var code   = Number(cur.weather_code); // ensure number
-
-var temp, unitT, wind, unitW;
-if (state.units==='us'){ temp=Math.round(tempC*9/5+32); unitT='°F'; wind=Math.round(windMS*2.23694); unitW='mph'; }
-else { temp=Math.round(tempC); unitT='°C'; wind=Math.round(windMS*3.6); unitW='km/h'; }
-
-$('weatherNow').textContent = temp+unitT+' • '+codeToWeather(code);
-$('weatherMeta').textContent = 'Wind '+wind+' '+unitW;
-
-// precip: scan next 24h (guard against missing hourly)
-var scan = scanPrecipNext24h(d && d.hourly ? d.hourly : null);
-if (scan && scan.max !== -1){
-  if (scan.max >= RAIN_WARN_PCT){
-    $('rainWarn').textContent = '☔ Rain likely in next 24h (max '+scan.max+'%'+(scan.first?' around '+fmtShortTime(scan.first):'')+').';
-  } else {
-    $('rainWarn').textContent = 'No significant precipitation expected in the next 24h.';
+  if (!WEATHERAPI_KEY) {
+    $('weatherNow').textContent = '—';
+    $('weatherMeta').textContent = 'Set WEATHERAPI_KEY';
+    $('rainWarn').textContent = '—';
+    setDiag('Weather: missing key');
+    return;
   }
-} else {
-  $('rainWarn').textContent = 'Precipitation forecast unavailable.';
-}
 
-      $('updated').textContent = 'Updated '+(new Date()).toLocaleTimeString();
+  // 3-day forecast (hourly included) – we’ll read current + next 24h
+  var url = 'https://api.weatherapi.com/v1/forecast.json'
+          + '?key=' + encodeURIComponent(WEATHERAPI_KEY)
+          + '&q=' + encodeURIComponent(state.lat + ',' + state.lon)
+          + '&days=3&aqi=no&alerts=no';
+
+  // IMPORTANT: do NOT proxy this call (it would leak your key to the proxy logs)
+  setDiag('Weather…');
+  getJSON(url, function(j){
+    try{
+      if (!j || !j.current || !j.forecast){ throw new Error('bad payload'); }
+
+      // ----- CURRENT -----
+      var useUS   = (state.units === 'us');
+      var tempC   = Number(j.current.temp_c);
+      var tempF   = Number(j.current.temp_f);
+      var windKph = Number(j.current.wind_kph);
+      var windMph = Number(j.current.wind_mph);
+      var condTxt = (j.current.condition && j.current.condition.text) ? j.current.condition.text : '—';
+
+      var temp = useUS ? Math.round(tempF) : Math.round(tempC);
+      var unitT = useUS ? '°F' : '°C';
+      var wind = useUS ? Math.round(windMph) : Math.round(windKph);
+      var unitW = useUS ? 'mph' : 'km/h';
+
+      $('weatherNow').textContent  = temp + unitT + ' • ' + condTxt;
+      $('weatherMeta').textContent = 'Wind ' + wind + ' ' + unitW;
+
+      // ----- PRECIP (next 24h) -----
+      // WeatherAPI hourly is split by day. Gather hours from now→+24h.
+      var now = new Date();
+      var cutoff = new Date(now.getTime() + 24*3600*1000);
+      var hours = [];
+      (j.forecast.forecastday || []).forEach(function(day){
+        (day.hour || []).forEach(function(h){
+          // h.time is "YYYY-MM-DD HH:00"
+          var t = parseISOLocal(h.time.replace(' ', 'T')); // reuse your helper
+          if (t >= now && t <= cutoff) {
+            // Prefer explicit chance_of_rain; fall back to chance_of_snow; else 0
+            var p = (h.chance_of_rain != null ? Number(h.chance_of_rain) :
+                    (h.chance_of_snow != null ? Number(h.chance_of_snow) : 0));
+            p = isFinite(p) ? Math.max(0, Math.min(100, p)) : 0;
+            hours.push({ t:t, p:p });
+          }
+        });
+      });
+
+      var maxp = -1, firstHit = null;
+      for (var i=0;i<hours.length;i++){
+        var p = hours[i].p;
+        if (p > maxp) maxp = p;
+        if (firstHit === null && p >= RAIN_WARN_PCT) firstHit = hours[i].t;
+      }
+
+      if (maxp >= 0){
+        if (maxp >= RAIN_WARN_PCT){
+          $('rainWarn').textContent = '☔ Rain likely in next 24h (max '
+            + maxp + '%' + (firstHit ? (' around ' + fmtShortTime(firstHit)) : '') + ').';
+        } else {
+          $('rainWarn').textContent = 'No significant precipitation expected in the next 24h.';
+        }
+      } else {
+        $('rainWarn').textContent = 'Precipitation forecast unavailable.';
+      }
+
+      $('updated').textContent = 'Updated ' + (new Date()).toLocaleTimeString();
       setDiag('Weather OK');
-    }catch(e){ $('weatherMeta').textContent='Weather parse error'; setDiag('Weather parse error'); }
+
+    } catch(e){
+      $('weatherMeta').textContent='Weather parse error';
+      $('rainWarn').textContent='—';
+      setDiag('Weather parse error');
+    }
   }, function(){
-    $('weatherMeta').textContent=(location.protocol==='file:'?'Blocked on file://':'Weather unavailable');
+    $('weatherMeta').textContent = (location.protocol==='file:' ? 'Blocked on file://' : 'Weather unavailable');
     $('rainWarn').textContent='—';
     setDiag('Weather XHR failed');
   });
