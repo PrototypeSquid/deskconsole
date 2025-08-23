@@ -75,6 +75,7 @@
       <div class="sub" id="weatherMeta">—</div>
       <div class="sub" id="rainWarn">—</div>
       <div class="sub" id="wxAlerts">—</div>
+      <div class="sub" id="aqiMeta">—</div>
     </div>
     <div style="text-align:right">
       <div class="val" id="moonVal">—</div>
@@ -396,7 +397,15 @@ function fmtShortTime(d){
            80:'Rain showers',81:'Rain showers',82:'Violent showers',95:'Thunderstorm',96:'Storm w/ hail',99:'Severe storm'};
     return m.hasOwnProperty(code)? m[code] : '—';
   }
-
+  
+/* ----- AQI helpers (US EPA scale) ----- */
+function epaCategory(idx){
+  // idx: 1..6 per WeatherAPI docs
+  // 1 Good, 2 Moderate, 3 USG, 4 Unhealthy, 5 Very Unhealthy, 6 Hazardous
+  var name = ['—','Good','Moderate','Unhealthy for Sensitive','Unhealthy','Very Unhealthy','Hazardous'][idx] || '—';
+  var cls  = (idx<=1)?'ok':(idx<=3)?'warn':'bad';
+  return { name:name, cls:cls };
+}
 
   function fetchAlerts(){
   // NWS alerts for US points. Works best in the US; elsewhere may return none.
@@ -437,13 +446,13 @@ function fmtShortTime(d){
     return;
   }
 
-  // 3-day forecast (hourly included) – we’ll read current + next 24h
+  // 3-day forecast (hourly included) – read current + next 24h
   var url = 'https://api.weatherapi.com/v1/forecast.json'
           + '?key=' + encodeURIComponent(WEATHERAPI_KEY)
           + '&q=' + encodeURIComponent(state.lat + ',' + state.lon)
-          + '&days=3&aqi=no&alerts=no';
+          + '&days=3&aqi=yes&alerts=no'; //alerts=no because that is a paid feature. we oputsource alerts to another api
 
-  // IMPORTANT: do NOT proxy this call (it would leak your key to the proxy logs)
+  // IMPORTANT: do NOT proxy this call (it would leak key to the proxy logs)
   setDiag('Weather…');
   getJSON(url, function(j){
     try{
@@ -464,6 +473,16 @@ function fmtShortTime(d){
 
       $('weatherNow').textContent  = temp + unitT + ' • ' + condTxt;
       $('weatherMeta').textContent = 'Wind ' + wind + ' ' + unitW;
+
+      // ----- AQI (US EPA) -----
+var aq = j.current && j.current.air_quality;
+if (aq && typeof aq['us-epa-index'] === 'number'){
+  var idx = Math.round(aq['us-epa-index']);
+  var cat = epaCategory(idx);
+  $('aqiMeta').innerHTML = 'Air Quality: <span class="pill ' + cat.cls + '">US EPA ' + idx + ' • ' + cat.name + '</span>';
+} else {
+  $('aqiMeta').textContent = 'Air Quality: —';
+}
 
       // ----- PRECIP (next 24h) -----
       // WeatherAPI hourly is split by day. Gather hours from now→+24h.
